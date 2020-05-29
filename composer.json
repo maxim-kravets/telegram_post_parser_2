@@ -1,0 +1,24 @@
+{
+  "name": "maxim-kravets/telegram_autoposting_script",
+  "description": "Script for autoposting in telegram",
+  "type": "project",
+  "license": "BSD-3-Clause",
+  "authors": [
+    {
+      "name": "Maxim Kravets",
+      "email": "kravets.development@gmail.com"
+    }
+  ],
+  "minimum-stability": "stable",
+  "require": {
+    "php": ">=7.3",
+    "symfony/dotenv": "^5.0",
+    "ext-readline": "*",
+    "danog/madelineproto": "^5.1"
+  },
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/"
+    }
+  }
+}

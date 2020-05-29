@@ -1,0 +1,127 @@
+#!/usr/bin/env php
+<?php
+
+date_default_timezone_set('Europe/Kiev');
+
+use danog\MadelineProto\API;
+
+require_once dirname(__DIR__).'/vendor/autoload.php';
+require_once dirname(__DIR__).'/config/bootstrap.php';
+
+$app_api_id = $_SERVER['APP_API_ID'];
+$app_api_hash = $_SERVER['APP_API_HASH'];
+
+if (empty($app_api_id)) {
+    echo 'APP_API_ID can\'t be empty'.PHP_EOL;
+}
+
+if (empty($app_api_hash)) {
+    echo 'APP_API_HASH can\'t be empty'.PHP_EOL;
+}
+
+$settings =  [
+    'app_info' => [
+        'api_id' => $app_api_id,
+        'api_hash' => $app_api_hash,
+    ],
+    'logger' => [
+        'logger' => 0,
+    ],
+];
+
+$api = new API(dirname(__DIR__).'/var/session.madeline', $settings);
+
+if (getopt(null, ['login'])) {
+    $api->loop(function () use ($api) {
+        $phone = trim((string) readline(PHP_EOL . 'Enter phone: '));
+        yield $api->phoneLogin($phone);
+
+        $code = trim((string) readline(PHP_EOL.'Enter code: '));
+        yield $api->completePhoneLogin($code);
+    });
+}
+
+if (!$api->getSelf()) {
+    echo 'Need to start script with --login flag' . PHP_EOL;
+
+    die();
+}
+
+
+$depth = time() - 300; // 5 minute
+
+$channels = [
+    'https://t.me/pwrtelegramgroupru'
+];
+
+$count = 0;
+$results_messages = [];
+foreach ($channels as $channel) {
+
+    $api->loop(function () use ($api, $channel, &$results_messages, $depth, &$count) {
+
+        $stop = false;
+
+        do {
+
+            try {
+                $parsed_messages = yield $api->messages->getHistory([
+                    'peer' => $channel,
+                    'offset_id' => 0,
+                    'offset_date' => 0,
+                    'add_offset' => 0,
+                    'limit' => 100,
+                    'max_id' => 0,
+                    'min_id' => 0,
+                ])['messages'];
+            } catch (Exception $e) {
+
+                if ('You have not joined this chat' === $e->getMessage()) {
+                    try {
+                        $api->channels->joinChannel(['channel' => $channel]);
+
+                        $parsed_messages = yield $api->messages->getHistory([
+                            'peer' => $channel,
+                            'offset_id' => 0,
+                            'offset_date' => 0,
+                            'add_offset' => 0,
+                            'limit' => 100,
+                            'max_id' => 0,
+                            'min_id' => 0,
+                        ])['messages'];
+                    } catch (\Exception $e) {
+                        echo $e->getMessage() . PHP_EOL;
+
+                        die();
+                    }
+                } else {
+                    echo $e->getMessage() . PHP_EOL;
+
+                    die();
+                }
+            }
+
+            foreach ($parsed_messages as $message) {
+
+                if (!isset($message['message'])) {
+                    continue;
+                }
+
+                if ($message['date'] < $depth) {
+                    $stop = true;
+                    break;
+                }
+
+                $results_messages[] = [
+                    'date' => date('Y-m-d H:i:s', $message['date']),
+                    'message' => $message['message']
+                ];
+            }
+        } while (!$stop);
+    });
+}
+
+var_dump($results_messages);
+
+$api->stop();
+
