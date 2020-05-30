@@ -14,7 +14,6 @@
     "php": ">=7.3",
     "symfony/dotenv": "^5.0",
     "ext-readline": "*",
-    "danog/madelineproto": "^5.1",
     "symfony/console": "^5.0"
   },
   "autoload": {
