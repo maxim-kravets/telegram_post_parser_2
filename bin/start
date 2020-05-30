@@ -3,20 +3,32 @@
 
 date_default_timezone_set('Europe/Kiev');
 
+use App\DepthHelper;
 use danog\MadelineProto\API;
+use Symfony\Component\Console\Input\ArgvInput;
+use Symfony\Component\Console\Output\ConsoleOutput;
+use Symfony\Component\Console\Style\SymfonyStyle;
 
 require_once dirname(__DIR__).'/vendor/autoload.php';
 require_once dirname(__DIR__).'/config/bootstrap.php';
+
+$input = new ArgvInput();
+$output = new ConsoleOutput();
+$io = new SymfonyStyle($input, $output);
 
 $app_api_id = $_SERVER['APP_API_ID'];
 $app_api_hash = $_SERVER['APP_API_HASH'];
 
 if (empty($app_api_id)) {
-    echo 'APP_API_ID can\'t be empty'.PHP_EOL;
+    $io->error('APP_API_ID can\'t be empty');
+
+    die();
 }
 
 if (empty($app_api_hash)) {
-    echo 'APP_API_HASH can\'t be empty'.PHP_EOL;
+    $io->error('APP_API_HASH can\'t be empty');
+
+    die();
 }
 
 $settings =  [
@@ -32,23 +44,26 @@ $settings =  [
 $api = new API(dirname(__DIR__).'/var/session.madeline', $settings);
 
 if (getopt(null, ['login'])) {
-    $api->loop(function () use ($api) {
-        $phone = trim((string) readline(PHP_EOL . 'Enter phone: '));
+    $api->loop(function () use ($api, $io) {
+        $phone = trim((string)  $io->ask('Enter phone: '));
         yield $api->phoneLogin($phone);
 
-        $code = trim((string) readline(PHP_EOL.'Enter code: '));
+        $code = trim((string) $io->ask('Enter code: '));
         yield $api->completePhoneLogin($code);
     });
 }
 
-if (!$api->getSelf()) {
-    echo 'Need to start script with --login flag' . PHP_EOL;
+$api->loop(function () use ($api, $io) {
+    if (! yield $api->getSelf()) {
+        $io->warning('You arn\'t authenticated in telegram. Please, start script with --login flag');
 
-    die();
-}
+        die();
+    }
+});
 
-
-$depth = time() - 300; // 5 minute
+$depthHelper = new DepthHelper();
+$depthHelper->setDepthInMinutes(5);
+$depth = $depthHelper->getDepth();
 
 $channels = [
     'https://t.me/pwrtelegramgroupru'
@@ -58,7 +73,7 @@ $count = 0;
 $results_messages = [];
 foreach ($channels as $channel) {
 
-    $api->loop(function () use ($api, $channel, &$results_messages, $depth, &$count) {
+    $api->loop(function () use ($api, $channel, &$results_messages, $depth, &$count, $io) {
 
         $stop = false;
 
@@ -90,12 +105,12 @@ foreach ($channels as $channel) {
                             'min_id' => 0,
                         ])['messages'];
                     } catch (\Exception $e) {
-                        echo $e->getMessage() . PHP_EOL;
+                        $io->error($e->getMessage());
 
                         die();
                     }
                 } else {
-                    echo $e->getMessage() . PHP_EOL;
+                    $io->error($e->getMessage());
 
                     die();
                 }
@@ -117,11 +132,15 @@ foreach ($channels as $channel) {
                     'message' => $message['message']
                 ];
             }
+
         } while (!$stop);
     });
 }
 
+$api->stop();
+
 var_dump($results_messages);
 
-$api->stop();
+$io->success('Messages successfully parsed!'.PHP_EOL.'Total messages count: '.count($results_messages));
+
 
