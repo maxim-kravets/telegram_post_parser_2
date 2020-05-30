@@ -1,1 +1,1 @@
-# Posts message to telegram chat
+# Parse messages from telegram channels
