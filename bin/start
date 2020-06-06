@@ -9,13 +9,16 @@ if (!file_exists(dirname(__DIR__).'/madeline.php')) {
 
 require_once dirname(__DIR__).'/madeline.php';
 require_once dirname(__DIR__).'/vendor/autoload.php';
-require_once dirname(__DIR__).'/config/bootstrap.php';
 
 use App\DepthHelper;
 use danog\MadelineProto\API;
 use Symfony\Component\Console\Input\ArgvInput;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use Symfony\Component\Dotenv\Dotenv;
+
+$dotenv = new Dotenv();
+$dotenv->loadEnv(dirname(__DIR__).'/.env');
 
 $input = new ArgvInput();
 $output = new ConsoleOutput();
@@ -74,7 +77,6 @@ $channels = [
     'https://t.me/pwrtelegramgroupru'
 ];
 
-$count = 0;
 $results_messages = [];
 foreach ($channels as $channel) {
 
@@ -132,10 +134,27 @@ foreach ($channels as $channel) {
                     break;
                 }
 
-                $results_messages[] = [
+                $results_message = [
                     'date' => date('Y-m-d H:i:s', $message['date']),
                     'message' => $message['message']
                 ];
+
+                if (isset($message['reply_to_msg_id'])) {
+
+                    try {
+                        $reply_to = yield $api->channels->getMessages([
+                                'channel' => $channel,
+                                'id' => [$message['reply_to_msg_id']]
+                        ]);
+                    } catch (Exception $e) {
+                        $io->error($e->getMessage());
+                        continue;
+                    }
+
+                    $results_message['reply_to'] = $reply_to['messages'][0]['message'];
+                }
+
+                $results_messages[] = $results_message;
             }
 
         } while (!$stop);
