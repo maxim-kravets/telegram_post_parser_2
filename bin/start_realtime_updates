@@ -1,0 +1,163 @@
+#!/usr/bin/env php
+<?php
+
+if (!file_exists(dirname(__DIR__).'/madeline.php')) {
+    copy('https://phar.madelineproto.xyz/madeline.php', dirname(__DIR__).'/madeline.php');
+}
+
+require_once dirname(__DIR__).'/madeline.php';
+require_once dirname(__DIR__).'/vendor/autoload.php';
+
+use danog\MadelineProto\API;
+use danog\MadelineProto\EventHandler;
+use Symfony\Component\Console\Input\ArgvInput;
+use Symfony\Component\Console\Style\SymfonyStyle;
+use Symfony\Component\Console\Output\ConsoleOutput;
+
+$input = new ArgvInput();
+$output = new ConsoleOutput();
+$io = new SymfonyStyle($input, $output);
+
+/**
+ * Event handler class.
+ */
+class NewMessageHandler extends EventHandler
+{
+    /**
+     * @var int|string Username or ID of bot admin
+     */
+    const ADMIN = "maximkravets"; // Change this
+
+    const TARGET_CHATS = [
+        'https://t.me/promfree',
+        'https://t.me/FirmaPiter'
+    ];
+
+    const TARGET_DIALOGS = [
+        '@demiart'
+    ];
+
+    /**
+     * Get peer(s) where to report errors
+     *
+     * @return int|string|array
+     */
+    public function getReportPeers()
+    {
+        return [self::ADMIN];
+    }
+
+    /**
+     * Called on startup, can contain async calls for initialization of the bot
+     *
+     * @return void
+     */
+    public function onStart()
+    {
+        $all_my_chats = [];
+        $chats = yield $this->messages->getAllChats([]);
+        foreach ($chats['chats'] as $chat) {
+             $all_my_chats[] = $chat['id'];
+        }
+
+        foreach (self::TARGET_CHATS as $CHAT) {
+            $id = (yield $this->getFullInfo($CHAT))['Chat']['id'];
+
+            if (!in_array($id, $all_my_chats)) {
+                $this->channels->joinChannel(['channel' => $CHAT]);
+            }
+        }
+    }
+
+    /**
+     * Handle updates from supergroups and channels
+     *
+     * @param array $update Update
+     */
+    public function onUpdateNewChannelMessage(array $update)
+    {
+        return $this->onUpdateNewMessage($update);
+    }
+
+    /**
+     * Handle updates from users.
+     *
+     * @param array $update Update
+     *
+     */
+    public function onUpdateNewMessage(array $update)
+    {
+        if ($update['message']['_'] === 'messageEmpty' || $update['message']['out'] ?? false) {
+            return;
+        }
+
+        $my_id = (yield $this->getInfo(self::ADMIN))['User']['id'];
+
+        $target_chats_ids = [];
+        foreach (self::TARGET_CHATS as $CHAT) {
+            $target_chats_ids[] = (yield $this->getInfo($CHAT))['Chat']['id'];
+        }
+
+        var_dump($target_chats_ids);
+        var_dump($update['message']);
+
+        $target_dialog_ids = [];
+        foreach (self::TARGET_DIALOGS as $DIALOG) {
+            $target_dialog_ids[] = (yield $this->getInfo($DIALOG))['User']['id'];
+        }
+
+        if (
+            (in_array($update['message']['from_id'], $target_dialog_ids) && $update['message']['to_id']['user_id'] === $my_id) ||
+            in_array($update['message']['to_id']['channel_id'], $target_chats_ids)
+        ) {
+
+            $results_message = [
+                'date' => date('Y-m-d H:i:s', $update['message']['date']),
+                'message' => $update['message']['message']
+            ];
+
+            if (isset($update['message']['reply_to_msg_id'])) {
+
+                $reply_to = yield $this->channels->getMessages([
+                    'channel' => $update['message']['to_id'],
+                    'id' => [$update['message']['reply_to_msg_id']]
+                ]);
+
+                $results_message['reply_to'] = $reply_to['messages'][0]['message'];
+            }
+
+            var_dump($results_message);
+        }
+    }
+}
+
+$settings = [
+    'logger' => [
+        'logger_level' => 5
+    ],
+    'serialization' => [
+        'serialization_interval' => 30,
+    ],
+];
+
+$api = new API(dirname(__DIR__).'/var/session.madeline', $settings);
+
+if (getopt(null, ['login'])) {
+    $api->loop(function () use ($api, $io) {
+        $phone = trim((string)  $io->ask('Enter phone: '));
+        yield $api->phoneLogin($phone);
+
+        $code = trim((string) $io->ask('Enter code: '));
+        yield $api->completePhoneLogin($code);
+    });
+}
+
+$api->loop(function () use ($api, $io) {
+    if (! yield $api->getSelf()) {
+        $io->warning('You arn\'t authenticated in telegram. Please, start script with --login flag');
+
+        die();
+    }
+});
+
+$api->startAndLoop(NewMessageHandler::class);
