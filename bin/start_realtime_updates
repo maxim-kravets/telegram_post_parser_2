@@ -26,16 +26,11 @@ class NewMessageHandler extends EventHandler
     /**
      * @var int|string Username or ID of bot admin
      */
-    const ADMIN = "maximkravets"; // Change this
+    const ADMIN = "@your_username"; // Change this
 
-    const TARGET_CHATS = [
-        'https://t.me/promfree',
-        'https://t.me/FirmaPiter'
-    ];
+    const TARGET_CHATS = [];
 
-    const TARGET_DIALOGS = [
-        '@Tryamtryam'
-    ];
+    const TARGET_DIALOGS = [];
 
     /**
      * Get peer(s) where to report errors
@@ -103,9 +98,13 @@ class NewMessageHandler extends EventHandler
             $target_dialog_ids[] = (yield $this->getInfo($DIALOG))['User']['id'];
         }
 
+        $from_id = $update['message']['from_id'] ?? 0;
+        $to_user_id = $update['message']['to_id']['user_id'] ?? 0;
+        $to_channel_id = $update['message']['to_id']['channel_id'] ?? 0;
+
         if (
-            (in_array($update['message']['from_id'], $target_dialog_ids) && $update['message']['to_id']['user_id'] === $my_id) ||
-            in_array($update['message']['to_id']['channel_id'], $target_chats_ids)
+            (in_array($from_id, $target_dialog_ids) && $to_user_id === $my_id) ||
+            in_array($to_channel_id, $target_chats_ids)
         ) {
 
             $results_message = [
@@ -115,10 +114,17 @@ class NewMessageHandler extends EventHandler
 
             if (isset($update['message']['reply_to_msg_id'])) {
 
-                $reply_to = yield $this->channels->getMessages([
-                    'channel' => $update['message']['to_id'],
-                    'id' => [$update['message']['reply_to_msg_id']]
-                ]);
+                if ($update['message']['to_id']['_'] === 'peerUser') {
+                    $reply_to = yield $this->messages->getMessages([
+                        'id' => [$update['message']['reply_to_msg_id']]
+                    ]);
+
+                    $results_message['reply_to'] = $reply_to['messages'][0]['message'];
+                } elseif ($update['message']['to_id']['_'] === 'peerChannel')
+                    $reply_to = yield $this->channels->getMessages([
+                        'channel' => $update['message']['to_id'],
+                        'id' => [$update['message']['reply_to_msg_id']]
+                    ]);
 
                 $results_message['reply_to'] = $reply_to['messages'][0]['message'];
             }
