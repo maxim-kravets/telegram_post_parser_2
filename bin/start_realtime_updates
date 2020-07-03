@@ -34,7 +34,7 @@ class NewMessageHandler extends EventHandler
     ];
 
     const TARGET_DIALOGS = [
-        '@demiart'
+        '@Tryamtryam'
     ];
 
     /**
@@ -97,9 +97,6 @@ class NewMessageHandler extends EventHandler
         foreach (self::TARGET_CHATS as $CHAT) {
             $target_chats_ids[] = (yield $this->getInfo($CHAT))['Chat']['id'];
         }
-
-        var_dump($target_chats_ids);
-        var_dump($update['message']);
 
         $target_dialog_ids = [];
         foreach (self::TARGET_DIALOGS as $DIALOG) {
