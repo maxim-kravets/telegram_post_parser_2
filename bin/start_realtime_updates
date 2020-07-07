@@ -13,6 +13,7 @@ use danog\MadelineProto\EventHandler;
 use Symfony\Component\Console\Input\ArgvInput;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\Console\Output\ConsoleOutput;
+use Symfony\Component\Dotenv\Dotenv;
 
 $input = new ArgvInput();
 $output = new ConsoleOutput();
@@ -134,9 +135,31 @@ class NewMessageHandler extends EventHandler
     }
 }
 
+$dotenv = new Dotenv();
+$dotenv->loadEnv(dirname(__DIR__).'/.env');
+
+$app_api_id = $_ENV['APP_API_ID'];
+$app_api_hash = $_ENV['APP_API_HASH'];
+
+if (empty($app_api_id)) {
+    $io->error('APP_API_ID can\'t be empty');
+
+    die();
+}
+
+if (empty($app_api_hash)) {
+    $io->error('APP_API_HASH can\'t be empty');
+
+    die();
+}
+
 $settings = [
+    'app_info' => [
+        'api_id' => $app_api_id,
+        'api_hash' => $app_api_hash,
+    ],
     'logger' => [
-        'logger_level' => 5
+        'logger' => 0
     ],
     'serialization' => [
         'serialization_interval' => 30,
@@ -162,5 +185,7 @@ $api->loop(function () use ($api, $io) {
         die();
     }
 });
+
+$io->comment('Script successfully started...');
 
 $api->startAndLoop(NewMessageHandler::class);
