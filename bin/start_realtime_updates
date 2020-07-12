@@ -8,12 +8,18 @@ if (!file_exists(dirname(__DIR__).'/madeline.php')) {
 require_once dirname(__DIR__).'/madeline.php';
 require_once dirname(__DIR__).'/vendor/autoload.php';
 
+use App\Entity\Post;
+use App\Entity\Price;
+use App\Service\PriceHelper;
 use danog\MadelineProto\API;
+use Doctrine\ORM\Tools\Setup;
+use Doctrine\ORM\EntityManager;
+use Symfony\Component\Dotenv\Dotenv;
 use danog\MadelineProto\EventHandler;
+use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Console\Input\ArgvInput;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\Console\Output\ConsoleOutput;
-use Symfony\Component\Dotenv\Dotenv;
 
 $input = new ArgvInput();
 $output = new ConsoleOutput();
@@ -29,9 +35,20 @@ class NewMessageHandler extends EventHandler
      */
     const ADMIN = "@your_username"; // Change this
 
-    const TARGET_CHATS = [];
+    const TARGET_CHATS = [
+        'https://t.me/FirmaPiter',
+        'https://t.me/promfree',
+        'https://t.me/nworkingchat'
+    ];
 
     const TARGET_DIALOGS = [];
+
+    private static $em;
+
+    /**
+     * @var PriceHelper $priceHelper
+     */
+    private static $priceHelper;
 
     /**
      * Get peer(s) where to report errors
@@ -46,10 +63,13 @@ class NewMessageHandler extends EventHandler
     /**
      * Called on startup, can contain async calls for initialization of the bot
      *
-     * @return void
+     * @return Generator
      */
     public function onStart()
     {
+        self::initDatabaseConnection();
+        self::$priceHelper = new PriceHelper();
+
         $all_my_chats = [];
         $chats = yield $this->messages->getAllChats([]);
         foreach ($chats['chats'] as $chat) {
@@ -80,6 +100,7 @@ class NewMessageHandler extends EventHandler
      *
      * @param array $update Update
      *
+     * @throws Exception
      */
     public function onUpdateNewMessage(array $update)
     {
@@ -91,12 +112,12 @@ class NewMessageHandler extends EventHandler
 
         $target_chats_ids = [];
         foreach (self::TARGET_CHATS as $CHAT) {
-            $target_chats_ids[] = (yield $this->getInfo($CHAT))['Chat']['id'];
+            $target_chats_ids[(yield $this->getInfo($CHAT))['Chat']['id']] = $CHAT;
         }
 
         $target_dialog_ids = [];
         foreach (self::TARGET_DIALOGS as $DIALOG) {
-            $target_dialog_ids[] = (yield $this->getInfo($DIALOG))['User']['id'];
+            $target_dialog_ids[(yield $this->getInfo($DIALOG))['User']['id']] = $DIALOG;
         }
 
         $from_id = $update['message']['from_id'] ?? 0;
@@ -104,8 +125,8 @@ class NewMessageHandler extends EventHandler
         $to_channel_id = $update['message']['to_id']['channel_id'] ?? 0;
 
         if (
-            (in_array($from_id, $target_dialog_ids) && $to_user_id === $my_id) ||
-            in_array($to_channel_id, $target_chats_ids)
+            (in_array($from_id, array_keys($target_dialog_ids)) && $to_user_id === $my_id) ||
+            in_array($to_channel_id, array_keys($target_chats_ids))
         ) {
 
             $results_message = [
@@ -113,25 +134,72 @@ class NewMessageHandler extends EventHandler
                 'message' => $update['message']['message']
             ];
 
+            $chat_link = '';
+            if ($from_id !== 0 && in_array($from_id, array_keys($target_dialog_ids))) {
+                $chat_link = $target_dialog_ids[$from_id];
+            } elseif ($to_channel_id !== 0 && in_array($to_channel_id, array_keys($target_chats_ids))) {
+                $chat_link = $target_chats_ids[$to_channel_id];
+            }
+
+            $post = (new Post())
+                ->setText($update['message']['message'])
+                ->setDate(new DateTime(date('Y-m-d H:i:s', $update['message']['date'])))
+                ->setChatLink($chat_link)
+            ;
+
             if (isset($update['message']['reply_to_msg_id'])) {
 
                 if ($update['message']['to_id']['_'] === 'peerUser') {
                     $reply_to = yield $this->messages->getMessages([
                         'id' => [$update['message']['reply_to_msg_id']]
                     ]);
-
-                    $results_message['reply_to'] = $reply_to['messages'][0]['message'];
-                } elseif ($update['message']['to_id']['_'] === 'peerChannel')
+                } elseif ($update['message']['to_id']['_'] === 'peerChannel') {
                     $reply_to = yield $this->channels->getMessages([
                         'channel' => $update['message']['to_id'],
                         'id' => [$update['message']['reply_to_msg_id']]
                     ]);
+                }
 
-                $results_message['reply_to'] = $reply_to['messages'][0]['message'];
+                if (isset($reply_to['messages'][0]['message'])) {
+                    $results_message['reply_to'] = $reply_to['messages'][0]['message'];
+                }
             }
 
-            var_dump($results_message);
+            if (isset($results_message['reply_to'])) {
+                $post->setReply($results_message['reply_to']);
+            }
+
+            self::$em->persist($post);
+            self::$em->flush();
+
+            self::$priceHelper::init();
+
+            if (!empty(self::$priceHelper::getBuy()) && !empty(self::$priceHelper::getSell())) {
+                $price = new Price();
+                $price->setBuy(self::$priceHelper::getBuy());
+                $price->setSell(self::$priceHelper::getSell());
+
+                self::$em->persist($price);
+                self::$em->flush();
+            }
         }
+    }
+
+    private static function initDatabaseConnection(): void
+    {
+        $db_url = $_ENV['DATABASE_URL'];
+
+        if (empty($db_url)) {
+            throw new LogicException('DATABASE_URL can\'t be empty. Define it in .env.local');
+        }
+
+        $connection = ['url' => $db_url];
+        $isDevMode = true;
+        $proxyDir = null;
+        $cache = null;
+        $useSimpleAnnotationReader = false;
+        $config = Setup::createAnnotationMetadataConfiguration(array(__DIR__."/src/Entity"), $isDevMode, $proxyDir, $cache, $useSimpleAnnotationReader);
+        self::$em = EntityManager::create($connection, $config);
     }
 }
 
@@ -142,13 +210,13 @@ $app_api_id = $_ENV['APP_API_ID'];
 $app_api_hash = $_ENV['APP_API_HASH'];
 
 if (empty($app_api_id)) {
-    $io->error('APP_API_ID can\'t be empty');
+    $io->error('APP_API_ID can\'t be empty. Define it in .env.local');
 
     die();
 }
 
 if (empty($app_api_hash)) {
-    $io->error('APP_API_HASH can\'t be empty');
+    $io->error('APP_API_HASH can\'t be empty. Define it in .env.local');
 
     die();
 }
