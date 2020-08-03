@@ -134,6 +134,8 @@ class NewMessageHandler extends EventHandler
                 'message' => $update['message']['message']
             ];
 
+            var_dump($results_message);
+
             $chat_link = '';
             if ($from_id !== 0 && in_array($from_id, array_keys($target_dialog_ids))) {
                 $chat_link = $target_dialog_ids[$from_id];
