@@ -23,10 +23,10 @@ class DepthHelper
         $this->time = $this->time - (60 * 60 * $hours);
     }
 
-    public function setDepthInDays(int $days)
-    {
-        $this->time = $this->time - (60 * 60 * 24 * $days);
-    }
+    //public function setDepthInDays(int $days)
+    //{
+    //    $this->time = $this->time - (60 * 60 * 24 * $days);
+    //}
 
     public function getDepth(): int
     {
