@@ -16,7 +16,6 @@ use Doctrine\ORM\Tools\Setup;
 use Doctrine\ORM\EntityManager;
 use Symfony\Component\Dotenv\Dotenv;
 use danog\MadelineProto\EventHandler;
-use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Console\Input\ArgvInput;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\Console\Output\ConsoleOutput;
@@ -36,14 +35,17 @@ class NewMessageHandler extends EventHandler
     const ADMIN = "@your_username"; // Change this
 
     const TARGET_CHATS = [
-        'https://t.me/FirmaPiter',
-        'https://t.me/promfree',
-        'https://t.me/nworkingchat'
+        '@target_chat_or_channel' // Change this
     ];
 
     const TARGET_DIALOGS = [];
 
     private static $em;
+
+    /**
+     * @var SymfonyStyle $io;
+     */
+    private static $io;
 
     /**
      * @var PriceHelper $priceHelper
@@ -65,8 +67,9 @@ class NewMessageHandler extends EventHandler
      *
      * @return Generator
      */
-    public function onStart()
+    public function onStart(): Generator
     {
+        self::initIO();
         self::initDatabaseConnection();
         self::$priceHelper = new PriceHelper();
 
@@ -77,10 +80,40 @@ class NewMessageHandler extends EventHandler
         }
 
         foreach (self::TARGET_CHATS as $CHAT) {
-            $id = (yield $this->getFullInfo($CHAT))['Chat']['id'];
 
-            if (!in_array($id, $all_my_chats)) {
-                $this->channels->joinChannel(['channel' => $CHAT]);
+            try {
+                $info = yield $this->getFullInfo($CHAT);
+            } catch (Exception $e) {
+
+                if (stripos($CHAT, 'joinchat') !== false) {
+
+                    try {
+                        yield $this->messages->importChatInvite([
+                            'hash' => substr($CHAT, strrpos($CHAT, '/') + 1),
+                        ]);
+                    } catch (Exception $e) {
+                        self::$io->error($e->getMessage());
+
+                        die();
+                    }
+
+                } else {
+                    self::$io->error($e->getMessage());
+
+                    die();
+                }
+            }
+
+            if (isset($info['Chat']['id']) && !in_array($info['Chat']['id'], $all_my_chats)) {
+
+                try {
+                    yield $this->channels->joinChannel(['channel' => $CHAT]);
+                } catch (Exception $e) {
+                    self::$io->error($e->getMessage());
+
+                    die();
+                }
+
             }
         }
     }
@@ -89,8 +122,10 @@ class NewMessageHandler extends EventHandler
      * Handle updates from supergroups and channels
      *
      * @param array $update Update
+     * @return Generator
+     * @throws Exception
      */
-    public function onUpdateNewChannelMessage(array $update)
+    public function onUpdateNewChannelMessage(array $update): Generator
     {
         return $this->onUpdateNewMessage($update);
     }
@@ -100,9 +135,10 @@ class NewMessageHandler extends EventHandler
      *
      * @param array $update Update
      *
+     * @return Generator
      * @throws Exception
      */
-    public function onUpdateNewMessage(array $update)
+    public function onUpdateNewMessage(array $update): Generator
     {
         if ($update['message']['_'] === 'messageEmpty' || $update['message']['out'] ?? false) {
             return;
@@ -134,7 +170,7 @@ class NewMessageHandler extends EventHandler
                 'message' => $update['message']['message']
             ];
 
-            var_dump($results_message);
+            self::$io->text($results_message);
 
             $chat_link = '';
             if ($from_id !== 0 && in_array($from_id, array_keys($target_dialog_ids))) {
@@ -186,6 +222,12 @@ class NewMessageHandler extends EventHandler
             }
         }
     }
+    private static function initIO(): void
+    {
+        $input = new ArgvInput();
+        $output = new ConsoleOutput();
+        self::$io = new SymfonyStyle($input, $output);
+    }
 
     private static function initDatabaseConnection(): void
     {
@@ -201,7 +243,14 @@ class NewMessageHandler extends EventHandler
         $cache = null;
         $useSimpleAnnotationReader = false;
         $config = Setup::createAnnotationMetadataConfiguration(array(__DIR__."/src/Entity"), $isDevMode, $proxyDir, $cache, $useSimpleAnnotationReader);
-        self::$em = EntityManager::create($connection, $config);
+
+        try {
+            self::$em = EntityManager::create($connection, $config);
+        } catch (Exception $e) {
+            self::$io->error($e->getMessage());
+
+            die();
+        }
     }
 }
 

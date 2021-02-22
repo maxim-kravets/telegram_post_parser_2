@@ -74,7 +74,7 @@ $depthHelper->setDepthInMinutes(1000);
 $depth = $depthHelper->getDepth();
 
 $channels = [
-    '@Kkv86'
+    '@target_chat_or_channel' // Change this
 ];
 
 $results_messages = [];
@@ -100,7 +100,30 @@ foreach ($channels as $channel) {
 
                 if ('You have not joined this chat' === $e->getMessage()) {
                     try {
-                        $api->channels->joinChannel(['channel' => $channel]);
+
+                        if (stripos($channel, 'joinchat') !== false) {
+
+                            try {
+                                yield $api->messages->importChatInvite([
+                                    'hash' => substr($channel, strrpos($channel, '/') + 1),
+                                ]);
+                            } catch (Exception $e) {
+                                $io->error($e->getMessage());
+
+                                die();
+                            }
+
+                        } else {
+
+                            try {
+                                yield $api->channels->joinChannel(['channel' => $channel]);
+                            } catch (Exception $e) {
+                                $io->error($e->getMessage());
+
+                                die();
+                            }
+
+                        }
 
                         $parsed_messages = yield $api->messages->getHistory([
                             'peer' => $channel,
@@ -163,7 +186,7 @@ foreach ($channels as $channel) {
 
 $api->stop();
 
-var_dump($results_messages);
+$io->text($results_messages);
 
 $io->success('Messages successfully parsed!'.PHP_EOL.'Total messages count: '.count($results_messages));
 
